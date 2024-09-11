@@ -1,0 +1,5 @@
+numpy
+matplotlib
+pydualsense
+sounddevice
+keyboard
