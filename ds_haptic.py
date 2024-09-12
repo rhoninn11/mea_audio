@@ -20,15 +20,12 @@ def safe_dir(dir):
 
 class haptic_control():
     def __init__(self):
-        self.amplitude = 0.1
-        self.amp_step = 0.01
+        self.amplitude = 0.25
+        self.amp_step = 0.1
 
         self.freq_target = 60
-        self.freq_step = 20
-        self.last_freq = self.freq_target
-        self.next_freq = self.freq_target
+        self.freq_step = 60
         self.freq_actual = self.freq_target
-        self.freq_ramp
 
         self.phase_offset = 0
         self.phase_Step = (2 * np.pi)/64
@@ -39,17 +36,16 @@ class haptic_control():
         self.signal_1_phase = 0
 
         self.fs = 0
-        self.transition_time = 0.5
-        self.transition_frames = 0
-        self.transition_at = 0
+        self.transition_time = 1
         self.transition_left = 0
+
+    def init_transition(self):
+        self.transition_left = int(self.fs * self.transition_time)
+        self.freq_actual = self.freq_target
         
 
     def set_fs(self, fs):
         self.fs = fs
-        self.transition_frames = self.fs * self.transition_time
-
-
 
     def amp_mod(self, dir):
         self.amplitude += self.amp_step * safe_dir(dir)
@@ -58,12 +54,11 @@ class haptic_control():
         print(f"amp {self.amplitude:f}")
 
     def freq_mod(self, dir):
+        self.init_transition()
+
         self.freq_target += self.freq_step * safe_dir(dir)
         self.freq_target = clamp(30, self.freq_target, 600)
         print(f"freq {self.freq_target:f}")
-
-        self.transition_at = 0
-        self.transition_left = self.transition_frames
 
     def phase_offset_mod(self, dir):
         self.phase_offset += self.phase_Step * safe_dir(dir)
@@ -75,11 +70,21 @@ class haptic_control():
 
     def freq_synth(self, frames):
 
-        self.transition_frames - self.transition_at
+        ramp_len = self.transition_left
+        ramp_vals = np.linspace(self.freq_actual, self.freq_target, ramp_len+1)[:-1]      # final value as constant
+   
+        if ramp_len > frames:
+            ramp_len = frames
+            ramp_vals = ramp_vals[:ramp_len]
 
-        if self.transition_at == 0:
-            ramp = np.linspace(self.last_freq, self.next_freq, self.transition_frames)
+        const_len = max(frames - ramp_len, 0)
+        const_vals = np.ones(const_len) * self.freq_target
 
+        dynamic_freq = np.concat((ramp_vals, const_vals))
+
+        self.transition_left -= ramp_len
+        self.freq_actual = dynamic_freq[-1]
+        return dynamic_freq
 
 
 
@@ -204,7 +209,7 @@ def simple_sine_gen(dev) -> sd.OutputStream:
             global hpc
 
             amp = hpc.amplitude
-            freqs = hpc.freq_target * np.ones(frames)
+            freqs = hpc.freq_synth(frames)
             offset = hpc.phase_offset
 
             x = phase_factor * freqs
